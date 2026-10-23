@@ -28,3 +28,10 @@ Dockerfile.render builds one container: web (static viewer build in web/) at `/`
 Put the viewer's `npm run build` output (dist/*) into web/ (keep admin.html). Admin page: /admin.html (first registered user = admin).
 The viewer's library dialog reads songs from the SQL table through /api/status, /api/library, /api/jobs/{id}/(tab|poses).
 Online conversion is disabled; convert locally (serve.py) and upload with admin.html.
+
+## Pages
+/login.html (sign in / create account / account + change password), /admin.html (songs + users, admin only).
+A "Sign in" button is added to the viewer's top bar by /site-nav.js (injected into index.html by the server, or by nginx sub_filter in docker-compose).
+
+## Adding many songs
+python tools/import_library.py --site https://<your-site> --library "<viewer_copy>\library"   (use --dry-run first)

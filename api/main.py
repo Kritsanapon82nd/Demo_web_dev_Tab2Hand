@@ -400,4 +400,17 @@ if os.environ.get("SERVE_WEB") == "1":
     _inner = app
     app = FastAPI(title="Tab2Hand")
     app.mount("/api", _inner)
-    app.mount("/", StaticFiles(directory=os.environ.get("WEB_DIR", "/app/web"), html=True))
+    _web = os.environ.get("WEB_DIR", "/app/web")
+
+    def _index():
+        """Viewer page with the sign-in button script added (survives a rebuilt viewer)."""
+        from fastapi.responses import HTMLResponse
+        with open(os.path.join(_web, "index.html"), encoding="utf-8") as fh:
+            html = fh.read()
+        tag = '<script src="/site-nav.js" defer></script>'
+        html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+    app.add_api_route("/", _index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/index.html", _index, methods=["GET"], include_in_schema=False)
+    app.mount("/", StaticFiles(directory=_web, html=True))

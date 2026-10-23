@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · Tab to Hand</title>
+<link rel="stylesheet" href="/site.css">
+</head><body>
+<div class="topbar"><a class="brand" href="/">Tab to Hand</a>
+  <div class="grow"><a class="btn" href="/">Open viewer</a></div></div>
+<main>
+  <!-- signed-out -->
+  <section class="card" id="authView" hidden>
+    <h1>Welcome</h1>
+    <p class="sub">You do not need an account to watch songs in the viewer. An account lets you keep a profile and, for admins, add songs.</p>
+    <div class="tabs"><button id="tLogin" class="on" type="button">Sign in</button><button id="tReg" type="button">Create account</button></div>
+    <form id="fLogin" autocomplete="on">
+      <label for="lu">Username</label><input id="lu" autocomplete="username" required>
+      <label for="lp">Password</label><input id="lp" type="password" autocomplete="current-password" required>
+      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+    <form id="fReg" hidden autocomplete="on">
+      <label for="ru">Username <span class="dim">(3–32 letters, digits, . _ -)</span></label><input id="ru" autocomplete="username" minlength="3" maxlength="32" required>
+      <div class="hint" id="ruHint"></div>
+      <label for="rd">Display name <span class="dim">(optional)</span></label><input id="rd" maxlength="64">
+      <label for="rp">Password <span class="dim">(8 or more characters)</span></label><input id="rp" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="rp2">Repeat password</label><input id="rp2" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="btn btn-primary btn-block" type="submit">Create account</button>
+    </form>
+    <p class="msg" id="msg"></p>
+  </section>
+
+  <!-- signed-in -->
+  <section class="card" id="meView" hidden>
+    <h1 id="meName">Account</h1>
+    <p class="sub"><span class="pill" id="meRole"></span> &nbsp;<span class="dim" id="meSince"></span></p>
+    <div class="row">
+      <a class="btn btn-primary" href="/">Open viewer</a>
+      <a class="btn" id="adminLink" href="/admin.html" hidden>Admin tools</a>
+      <button class="btn" id="out" type="button">Sign out</button>
+    </div>
+    <div class="divider"></div>
+    <h2>Change password</h2>
+    <form id="fPw">
+      <label for="op">Current password</label><input id="op" type="password" autocomplete="current-password" required>
+      <label for="np">New password <span class="dim">(8 or more characters)</span></label><input id="np" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="btn" style="margin-top:14px" type="submit">Change password</button>
+    </form>
+    <p class="msg" id="msg2"></p>
+  </section>
+</main>
+<script src="/site.js"></script>
+<script>
+const next = new URLSearchParams(location.search).get('next');
+function safeNext() { return next && next.startsWith('/') && !next.startsWith('//') ? next : '/'; }
+
+function show(user) {
+  $('authView').hidden = !!user; $('meView').hidden = !user;
+  if (!user) return;
+  $('meName').textContent = user.display_name || user.username;
+  $('meRole').textContent = user.role; $('meRole').className = 'pill ' + user.role;
+  $('meSince').textContent = '@' + user.username + ' · joined ' + user.created_at.slice(0, 10);
+  $('adminLink').hidden = user.role !== 'admin';
+}
+function tab(reg) {
+  $('fLogin').hidden = reg; $('fReg').hidden = !reg;
+  $('tLogin').classList.toggle('on', !reg); $('tReg').classList.toggle('on', reg); say('msg', '');
+}
+$('tLogin').onclick = () => tab(false); $('tReg').onclick = () => tab(true);
+
+async function doLogin(username, password) {
+  const d = await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+  store.set(d.access_token);
+  location.href = safeNext();
+}
+$('fLogin').onsubmit = async (e) => {
+  e.preventDefault(); say('msg', 'Signing in…');
+  try { await doLogin($('lu').value.trim(), $('lp').value); } catch (err) { say('msg', err.message, 'err'); }
+};
+let timer;
+$('ru').oninput = () => {
+  clearTimeout(timer); const v = $('ru').value.trim();
+  if (v.length < 3) { say('ruHint', ''); return; }
+  timer = setTimeout(async () => {
+    try { const d = await api('/check-username/' + encodeURIComponent(v)); say('ruHint', d.available ? 'Available' : 'Already taken', d.available ? 'ok' : 'err'); } catch (e) {}
+  }, 350);
+};
+$('fReg').onsubmit = async (e) => {
+  e.preventDefault();
+  if ($('rp').value !== $('rp2').value) { say('msg', 'The two passwords do not match.', 'err'); return; }
+  say('msg', 'Creating account…');
+  try {
+    const u = $('ru').value.trim();
+    await api('/register', { method: 'POST', body: JSON.stringify({ username: u, password: $('rp').value, display_name: $('rd').value.trim() }) });
+    await doLogin(u, $('rp').value);
+  } catch (err) { say('msg', err.message, 'err'); }
+};
+$('out').onclick = async () => { try { await api('/logout', { method: 'POST' }); } catch (e) {} store.clear(); location.reload(); };
+$('fPw').onsubmit = async (e) => {
+  e.preventDefault(); say('msg2', 'Saving…');
+  try {
+    await api('/change-password', { method: 'POST', body: JSON.stringify({ old_password: $('op').value, new_password: $('np').value }) });
+    store.clear(); say('msg2', 'Password changed. Please sign in again.', 'ok'); setTimeout(() => location.reload(), 1200);
+  } catch (err) { say('msg2', err.message, 'err'); }
+};
+currentUser().then(show);
+</script></body></html>

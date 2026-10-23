@@ -1,49 +1,88 @@
 <!doctype html>
-<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tab2Hand Library</title>
-<style>
-body{font:15px system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px;color:#1a1a1a}
-input,button,textarea{font:inherit;padding:6px 8px;margin:2px 0}
-section{border:1px solid #ccc;border-radius:8px;padding:12px;margin:12px 0}
-table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eee;padding:4px;text-align:left}
-.err{color:#b00020}.ok{color:#116611}
-</style></head><body>
-<h1>Tab2Hand Library — จัดการ (admin)</h1><p><a href="/">← กลับหน้าแอปหลัก</a></p>
-<p id="who">ยังไม่ได้ล็อกอิน</p>
-<section id="auth"><h3>สมัคร / ล็อกอิน</h3>
-<input id="u" placeholder="username"> <input id="p" type="password" placeholder="password (8+ ตัว)">
-<button onclick="reg()">สมัคร</button> <button onclick="login()">ล็อกอิน</button>
-<button onclick="logout()">ออกจากระบบ</button> <span id="amsg"></span></section>
-<section><h3>เพลงในคลัง</h3><input id="q" placeholder="ค้นหาชื่อ" oninput="load()">
-<table><thead><tr><th>ชื่อ</th><th>keyframes</th><th>โดย</th><th></th></tr></thead><tbody id="rows"></tbody></table>
-<button onclick="pg(-1)">ก่อนหน้า</button> <span id="pn">1</span> <button onclick="pg(1)">ถัดไป</button></section>
-<section><h3>เพิ่มเพลง (ต้องล็อกอิน)</h3>
-<input id="t" placeholder="ชื่อเพลง"><br>
-ไฟล์แท็บ (.gp3/.gp4/.gp5): <input type="file" id="g" accept=".gp3,.gp4,.gp5,.gp,.gpx"><br>
-ไฟล์ ik_poses_output.json: <input type="file" id="f" accept=".json"><br>
-เลขแทร็กที่แปลง (เริ่มที่ 0): <input id="tr" type="number" value="0" min="0" style="width:4em"> ชื่อแทร็ก: <input id="tn"><br>
-<button onclick="up()">อัปโหลดเข้าคลัง (admin เท่านั้น)</button> <span id="umsg"></span></section>
-<section id="out" hidden><h3 id="otitle"></h3><pre id="odata" style="max-height:200px;overflow:auto"></pre></section>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Tab to Hand</title>
+<link rel="stylesheet" href="/site.css">
+</head><body>
+<div class="topbar"><a class="brand" href="/">Tab to Hand</a><span class="dim">Admin</span>
+  <div class="grow"><a class="btn" href="/">Open viewer</a><a class="btn" href="/login.html">Account</a></div></div>
+<main class="wide">
+  <section class="card" id="gate" hidden>
+    <h1>Admin only</h1>
+    <p class="sub" id="gateMsg">Sign in with an admin account to manage songs and users.</p>
+    <a class="btn btn-primary" href="/login.html?next=/admin.html">Sign in</a>
+  </section>
+
+  <div id="panel" hidden>
+    <section class="card">
+      <h2>Songs in the library</h2>
+      <p class="sub">Everyone can open these from the viewer (Make hand poses → library). Only admins can add or remove them.</p>
+      <table><thead><tr><th>Title</th><th>Track</th><th>Keyframes</th><th>Added by</th><th></th></tr></thead><tbody id="songs"></tbody></table>
+      <div class="row" style="margin-top:10px"><button class="btn" id="sPrev" type="button">Prev</button><span id="sPn" class="dim">1</span><button class="btn" id="sNext" type="button">Next</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Add a song</h2>
+      <p class="sub">Use the tab file and the <code>ik_poses_output.json</code> that the local converter produced. Many songs at once: see <code>tools/import_library.py</code>.</p>
+      <form id="fUp">
+        <label for="t">Title</label><input id="t" required maxlength="200">
+        <label for="g">Tab file (.gp3 / .gp4 / .gp5)</label><input type="file" id="g" accept=".gp3,.gp4,.gp5,.gp,.gpx" required>
+        <label for="f">Poses file (ik_poses_output.json)</label><input type="file" id="f" accept=".json" required>
+        <div class="row"><div style="flex:1;min-width:140px"><label for="tr">Track number (first track = 0)</label><input id="tr" type="number" value="0" min="0" max="99"></div>
+          <div style="flex:2;min-width:180px"><label for="tn">Track name <span class="dim">(optional)</span></label><input id="tn" maxlength="100"></div></div>
+        <button class="btn btn-primary btn-block" type="submit">Upload</button>
+      </form>
+      <p class="msg" id="umsg"></p>
+    </section>
+
+    <section class="card">
+      <h2>Users</h2>
+      <table><thead><tr><th>ID</th><th>Username</th><th>Display name</th><th>Role</th><th>Joined</th><th></th></tr></thead><tbody id="users"></tbody></table>
+      <div class="row" style="margin-top:10px"><button class="btn" id="uPrev" type="button">Prev</button><span id="uPn" class="dim">1</span><button class="btn" id="uNext" type="button">Next</button><span class="dim" id="uTot"></span></div>
+    </section>
+  </div>
+</main>
+<script src="/site.js"></script>
 <script>
-const A='/api';let tok=localStorage.getItem('tok'),page=1;
-const $=i=>document.getElementById(i);
-async function api(path,opt={}){opt.headers=Object.assign({'Content-Type':'application/json'},opt.headers||{});
- if(tok)opt.headers.Authorization='Bearer '+tok;const r=await fetch(A+path,opt);
- const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||r.status);return d}
-async function reg(){try{await api('/register',{method:'POST',body:JSON.stringify({username:$('u').value,password:$('p').value})});$('amsg').textContent='สมัครแล้ว ล็อกอินได้เลย';$('amsg').className='ok'}catch(e){$('amsg').textContent=e.message;$('amsg').className='err'}}
-async function login(){try{const d=await api('/login',{method:'POST',body:JSON.stringify({username:$('u').value,password:$('p').value})});tok=d.access_token;localStorage.setItem('tok',tok);$('amsg').textContent='';who()}catch(e){$('amsg').textContent=e.message;$('amsg').className='err'}}
-async function logout(){try{await api('/logout',{method:'POST'})}catch(e){}tok=null;localStorage.removeItem('tok');who()}
-async function who(){try{const m=await api('/me');$('who').textContent='ล็อกอินเป็น '+m.username+' ('+m.role+')'}catch(e){$('who').textContent='ยังไม่ได้ล็อกอิน'}load()}
-function pg(d){page=Math.max(1,page+d);load()}
-async function load(){const d=await api('/songs?page='+page+'&q='+encodeURIComponent($('q').value));$('pn').textContent=page+' / '+Math.max(1,Math.ceil(d.total/d.page_size));
- $('rows').innerHTML='';d.items.forEach(s=>{const tr=document.createElement('tr');
- tr.innerHTML='<td></td><td>'+s.num_keyframes+'</td><td></td><td><button>ดู poses</button> <button>ลบ</button></td>';
- tr.children[0].textContent=s.title;tr.children[2].textContent=s.owner;
- tr.querySelectorAll('button')[0].onclick=()=>show(s);tr.querySelectorAll('button')[1].onclick=()=>del(s.id);$('rows').appendChild(tr)})}
-async function show(s){const d=await api('/songs/'+s.id+'/poses');$('out').hidden=false;$('otitle').textContent=s.title;$('odata').textContent=JSON.stringify(d,null,1).slice(0,4000)}
-async function del(id){try{await api('/songs/'+id,{method:'DELETE'});load()}catch(e){alert(e.message)}}
-async function up(){try{const f=$('f').files[0];const poses=JSON.parse(await f.text());
- const g=$('g').files[0];let tab_b64=null,tab_name='';if(g){tab_name=g.name;const u8=new Uint8Array(await g.arrayBuffer());let bin='';for(let i=0;i<u8.length;i+=0x8000)bin+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));tab_b64=btoa(bin)}
- await api('/songs',{method:'POST',body:JSON.stringify({title:$('t').value,poses,tab_b64,tab_name,track:+$('tr').value,track_name:$('tn').value})});$('umsg').textContent='อัปโหลดแล้ว';$('umsg').className='ok';load()}catch(e){$('umsg').textContent=e.message;$('umsg').className='err'}}
-who();
+let me = null, sp = 1, up = 1;
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function loadSongs() {
+  const d = await api('/songs?page=' + sp + '&page_size=10');
+  $('sPn').textContent = sp + ' / ' + Math.max(1, Math.ceil(d.total / d.page_size));
+  $('songs').innerHTML = d.items.map((s) => `<tr><td>${esc(s.title)}</td><td>${esc(s.track)}</td><td>${s.num_keyframes}</td><td>${esc(s.owner)}</td>
+    <td class="right"><button class="btn btn-danger" data-del="${s.id}" type="button">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="dim">No songs yet.</td></tr>';
+}
+async function loadUsers() {
+  const d = await api('/users?page=' + up + '&page_size=10');
+  $('uPn').textContent = up + ' / ' + Math.max(1, Math.ceil(d.total / d.page_size)); $('uTot').textContent = d.total + ' users';
+  $('users').innerHTML = d.items.map((u) => `<tr><td>${u.id}</td><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td>
+    <td><span class="pill ${u.role}">${u.role}</span></td><td>${u.created_at.slice(0, 10)}</td>
+    <td class="right">${u.id === me.id ? '' : `<button class="btn btn-danger" data-deluser="${u.id}" type="button">Delete</button>`}</td></tr>`).join('');
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  try {
+    if (b.dataset.del && confirm('Remove this song from the library?')) { await api('/songs/' + b.dataset.del, { method: 'DELETE' }); loadSongs(); }
+    if (b.dataset.deluser && confirm('Delete this user and the songs they added?')) { await api('/users/' + b.dataset.deluser, { method: 'DELETE' }); loadUsers(); loadSongs(); }
+  } catch (err) { alert(err.message); }
+});
+$('sPrev').onclick = () => { sp = Math.max(1, sp - 1); loadSongs(); }; $('sNext').onclick = () => { sp++; loadSongs(); };
+$('uPrev').onclick = () => { up = Math.max(1, up - 1); loadUsers(); }; $('uNext').onclick = () => { up++; loadUsers(); };
+
+function b64(buf) { const u8 = new Uint8Array(buf); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+$('fUp').onsubmit = async (e) => {
+  e.preventDefault(); say('umsg', 'Uploading…');
+  try {
+    const g = $('g').files[0], f = $('f').files[0];
+    const poses = JSON.parse(await f.text());
+    await api('/songs', { method: 'POST', body: JSON.stringify({ title: $('t').value.trim(), poses, tab_b64: b64(await g.arrayBuffer()), tab_name: g.name, track: +$('tr').value, track_name: $('tn').value.trim() }) });
+    say('umsg', 'Added to the library.', 'ok'); $('fUp').reset(); loadSongs();
+  } catch (err) { say('umsg', err.message, 'err'); }
+};
+currentUser().then((u) => {
+  me = u;
+  if (!u) { $('gate').hidden = false; return; }
+  if (u.role !== 'admin') { $('gate').hidden = false; $('gateMsg').textContent = 'You are signed in as ' + u.username + ', which is not an admin account.'; return; }
+  $('panel').hidden = false; loadSongs(); loadUsers();
+});
 </script></body></html>
