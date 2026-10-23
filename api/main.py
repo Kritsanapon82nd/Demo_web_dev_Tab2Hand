@@ -15,6 +15,8 @@ from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column,
                             sessionmaker)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./local.db")
+if DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    DATABASE_URL = "postgresql+psycopg2://" + DATABASE_URL.split("://", 1)[1]
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "24"))
 MAX_POSES_BYTES = int(os.environ.get("MAX_POSES_BYTES", str(20 * 1024 * 1024)))
 
@@ -306,3 +308,13 @@ def delete_song(sid: int, u: User = Depends(current_user), db: Session = Depends
     db.delete(s)
     db.commit()
     return {"ok": True}
+
+
+# Single-container mode (Render etc.): serve web page at / and the API under /api
+if os.environ.get("SERVE_WEB") == "1":
+    from fastapi.staticfiles import StaticFiles
+    Base.metadata.create_all(engine)
+    _inner = app
+    app = FastAPI(title="Tab2Hand")
+    app.mount("/api", _inner)
+    app.mount("/", StaticFiles(directory=os.environ.get("WEB_DIR", "/app/web"), html=True))
