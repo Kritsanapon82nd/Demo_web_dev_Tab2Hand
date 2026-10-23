@@ -38,3 +38,18 @@ python tools/import_library.py --site https://<your-site> --library "<viewer_cop
 
 ## Song picker / track names
 The viewer page gets a Songs button (site-nav.js): lists the library and opens a song through the viewer's own library dialog. admin.html reads the track names from the chosen tab file (alphaTab 1.8.4 from jsDelivr) and offers them in a dropdown.
+
+## Direct "open song" hook (recommended, one small viewer change)
+In the viewer copy, src/convert/useConverter.ts, paste this directly above the line `const running = job?.state === ...`:
+
+    // Lets the site's "Songs" button open a stored song directly.
+    useEffect(() => {
+      ;(window as unknown as { __t2hOpen?: (id: string) => Promise<void> }).__t2hOpen = async (id: string) => {
+        const items = await convApi.library()
+        const it = items.find((x) => x.id === id)
+        if (!it) throw new Error('song not found')
+        await openItem(it)
+      }
+    }, [openItem])
+
+Then `npm run build` and copy dist/ into web/ as before. Without it the Songs button falls back to clicking through the viewer's own dialog.

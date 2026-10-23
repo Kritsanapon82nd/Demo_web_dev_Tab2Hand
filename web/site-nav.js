@@ -87,6 +87,13 @@
     return best;
   }
   function openSong(item, back, msg) {
+    // Preferred: the viewer exposes a direct hook (see README: 3-line addition in useConverter.ts).
+    if (typeof window.__t2hOpen === 'function') {
+      msg.textContent = 'Opening\u2026';
+      Promise.resolve(window.__t2hOpen(String(item.id))).then(function () { back.remove(); })
+        .catch(function (e) { msg.textContent = 'Could not open this song: ' + (e && e.message ? e.message : e); });
+      return;
+    }
     var b = convButton();
     if (!b) { msg.textContent = 'Could not find the viewer’s own library button. Use Make hand poses → Converted songs.'; return; }
     back.remove();
