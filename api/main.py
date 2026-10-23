@@ -1,4 +1,5 @@
 """Tab2Hand REST API: auth + user management + song/pose storage (SQL)."""
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -9,8 +10,8 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import (DateTime, ForeignKey, Integer, String, Text,
-                        create_engine, func, select)
+from sqlalchemy import (DateTime, ForeignKey, Integer, LargeBinary, String, Text,
+                        create_engine, func, inspect, select, text)
 from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, mapped_column,
                             sessionmaker)
 
@@ -59,7 +60,24 @@ class Song(Base):
     note: Mapped[str] = mapped_column(String(500), default="")
     num_keyframes: Mapped[int] = mapped_column(Integer, default=0)
     poses_json: Mapped[str] = mapped_column(Text)
+    tab_name: Mapped[str] = mapped_column(String(200), default="")
+    tab_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    track: Mapped[int] = mapped_column(Integer, default=0)
+    track_name: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
+def init_schema():
+    """Create tables; add columns that older deployments lack (tiny hand-rolled migration)."""
+    Base.metadata.create_all(engine)
+    have = {c["name"] for c in inspect(engine).get_columns("songs")}
+    blob = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+    add = {"tab_name": "VARCHAR(200) DEFAULT ''", "tab_data": blob,
+           "track": "INTEGER DEFAULT 0", "track_name": "VARCHAR(100) DEFAULT ''"}
+    with engine.begin() as cx:
+        for col, ddl in add.items():
+            if col not in have:
+                cx.execute(text(f"ALTER TABLE songs ADD COLUMN {col} {ddl}"))
 
 
 def hash_password(pw: str) -> str:
@@ -128,6 +146,10 @@ class SongIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     note: str = Field(default="", max_length=500)
     poses: Any  # JSON produced by the converter (ik_poses_output.json)
+    tab_b64: Optional[str] = None  # the Guitar Pro file, base64
+    tab_name: str = Field(default="", max_length=200)
+    track: int = Field(default=0, ge=0, le=99)
+    track_name: str = Field(default="", max_length=100)
 
 
 app = FastAPI(title="Tab2Hand API")
@@ -135,7 +157,7 @@ app = FastAPI(title="Tab2Hand API")
 
 @app.on_event("startup")
 def init_db():
-    Base.metadata.create_all(engine)
+    init_schema()
 
 
 @app.get("/health")
@@ -257,12 +279,23 @@ def song_out(s: Song, owner: str = "") -> dict:
 
 @app.post("/songs", status_code=201)
 def create_song(body: SongIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    if u.role != "admin":
+        raise HTTPException(403, "only admin can add songs to the shared library")
     txt = json.dumps(body.poses, separators=(",", ":"))
     if len(txt.encode()) > MAX_POSES_BYTES:
         raise HTTPException(413, "poses too large")
     p = body.poses
     n = len(p) if isinstance(p, list) else len(p.get("keyframes", p.get("poses", []))) if isinstance(p, dict) else 0
-    s = Song(owner_id=u.id, title=body.title, note=body.note, num_keyframes=n, poses_json=txt)
+    tab = None
+    if body.tab_b64:
+        try:
+            tab = base64.b64decode(body.tab_b64, validate=True)
+        except Exception:
+            raise HTTPException(400, "tab_b64 is not valid base64")
+        if len(tab) > MAX_POSES_BYTES:
+            raise HTTPException(413, "tab file too large")
+    s = Song(owner_id=u.id, title=body.title, note=body.note, num_keyframes=n, poses_json=txt,
+             tab_name=body.tab_name, tab_data=tab, track=body.track, track_name=body.track_name)
     db.add(s)
     db.commit()
     return song_out(s, u.username)
@@ -310,10 +343,60 @@ def delete_song(sid: int, u: User = Depends(current_user), db: Session = Depends
     return {"ok": True}
 
 
+# ---------------- Compatibility layer for the viewer's library dialog ----------------
+# The viewer (tab reader 3d, src/convert/api.ts) talks to /api/status, /api/library and /api/jobs/{id}/(tab|poses).
+# Here they are backed by the SQL table, so the viewer lists and opens stored songs without any code change.
+# Conversion itself is not available online (it runs locally with serve.py).
+@app.get("/status")
+def viewer_status():
+    return {"available": True, "problem": None, "pipeline": None, "python": None,
+            "formats": [".gp3", ".gp4", ".gp5"], "maxUploadMB": 20, "busy": False,
+            "activeJob": None, "testMaxFrames": None}
+
+
+def _lib_item(s: Song) -> dict:
+    return {"id": str(s.id), "file": s.tab_name or f"{s.title}.gp5", "title": s.title,
+            "track": s.track, "trackName": s.track_name, "notes": s.num_keyframes, "bars": None,
+            "finishedAt": s.created_at.isoformat() + "Z", "elapsedSec": 0, "summary": None, "stale": False}
+
+
+@app.get("/library")
+def viewer_library(db: Session = Depends(get_db)):
+    rows = db.scalars(select(Song).where(Song.tab_data.is_not(None)).order_by(Song.id.desc())).all()
+    return {"items": [_lib_item(s) for s in rows]}
+
+
+@app.get("/jobs/{sid}/tab")
+def viewer_tab(sid: int, db: Session = Depends(get_db)):
+    from fastapi.responses import Response
+    s = db.get(Song, sid)
+    if not s or s.tab_data is None:
+        raise HTTPException(404, "tab not found")
+    return Response(bytes(s.tab_data), media_type="application/octet-stream")
+
+
+@app.get("/jobs/{sid}/poses")
+def viewer_poses(sid: int, db: Session = Depends(get_db)):
+    return get_poses(sid, db)
+
+
+@app.post("/convert")
+def viewer_convert_disabled():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"error": "Online conversion is turned off on this site (it takes minutes to an hour per song). "
+                                  "Run the local server (python serve.py) to convert; the finished songs here were made that way."},
+                        status_code=403)
+
+
+@app.delete("/library/{sid}")
+def viewer_library_delete():
+    raise HTTPException(403, "use DELETE /songs/{id} with an admin login")
+
+
 # Single-container mode (Render etc.): serve web page at / and the API under /api
 if os.environ.get("SERVE_WEB") == "1":
     from fastapi.staticfiles import StaticFiles
-    Base.metadata.create_all(engine)
+    init_schema()
     _inner = app
     app = FastAPI(title="Tab2Hand")
     app.mount("/api", _inner)

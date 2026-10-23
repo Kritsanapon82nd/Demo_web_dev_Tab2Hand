@@ -1,46 +1,20 @@
 <!doctype html>
-<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tab2Hand Library</title>
-<style>
-body{font:15px system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px;color:#1a1a1a}
-input,button,textarea{font:inherit;padding:6px 8px;margin:2px 0}
-section{border:1px solid #ccc;border-radius:8px;padding:12px;margin:12px 0}
-table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eee;padding:4px;text-align:left}
-.err{color:#b00020}.ok{color:#116611}
-</style></head><body>
-<h1>Tab2Hand Library</h1>
-<p id="who">ยังไม่ได้ล็อกอิน</p>
-<section id="auth"><h3>สมัคร / ล็อกอิน</h3>
-<input id="u" placeholder="username"> <input id="p" type="password" placeholder="password (8+ ตัว)">
-<button onclick="reg()">สมัคร</button> <button onclick="login()">ล็อกอิน</button>
-<button onclick="logout()">ออกจากระบบ</button> <span id="amsg"></span></section>
-<section><h3>เพลงในคลัง</h3><input id="q" placeholder="ค้นหาชื่อ" oninput="load()">
-<table><thead><tr><th>ชื่อ</th><th>keyframes</th><th>โดย</th><th></th></tr></thead><tbody id="rows"></tbody></table>
-<button onclick="pg(-1)">ก่อนหน้า</button> <span id="pn">1</span> <button onclick="pg(1)">ถัดไป</button></section>
-<section><h3>เพิ่มเพลง (ต้องล็อกอิน)</h3>
-<input id="t" placeholder="ชื่อเพลง"><br>
-<input type="file" id="f" accept=".json"><br>
-<button onclick="up()">อัปโหลด ik_poses_output.json</button> <span id="umsg"></span></section>
-<section id="out" hidden><h3 id="otitle"></h3><pre id="odata" style="max-height:200px;overflow:auto"></pre></section>
-<script>
-const A='/api';let tok=localStorage.getItem('tok'),page=1;
-const $=i=>document.getElementById(i);
-async function api(path,opt={}){opt.headers=Object.assign({'Content-Type':'application/json'},opt.headers||{});
- if(tok)opt.headers.Authorization='Bearer '+tok;const r=await fetch(A+path,opt);
- const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||r.status);return d}
-async function reg(){try{await api('/register',{method:'POST',body:JSON.stringify({username:$('u').value,password:$('p').value})});$('amsg').textContent='สมัครแล้ว ล็อกอินได้เลย';$('amsg').className='ok'}catch(e){$('amsg').textContent=e.message;$('amsg').className='err'}}
-async function login(){try{const d=await api('/login',{method:'POST',body:JSON.stringify({username:$('u').value,password:$('p').value})});tok=d.access_token;localStorage.setItem('tok',tok);$('amsg').textContent='';who()}catch(e){$('amsg').textContent=e.message;$('amsg').className='err'}}
-async function logout(){try{await api('/logout',{method:'POST'})}catch(e){}tok=null;localStorage.removeItem('tok');who()}
-async function who(){try{const m=await api('/me');$('who').textContent='ล็อกอินเป็น '+m.username+' ('+m.role+')'}catch(e){$('who').textContent='ยังไม่ได้ล็อกอิน'}load()}
-function pg(d){page=Math.max(1,page+d);load()}
-async function load(){const d=await api('/songs?page='+page+'&q='+encodeURIComponent($('q').value));$('pn').textContent=page+' / '+Math.max(1,Math.ceil(d.total/d.page_size));
- $('rows').innerHTML='';d.items.forEach(s=>{const tr=document.createElement('tr');
- tr.innerHTML='<td></td><td>'+s.num_keyframes+'</td><td></td><td><button>ดู poses</button> <button>ลบ</button></td>';
- tr.children[0].textContent=s.title;tr.children[2].textContent=s.owner;
- tr.querySelectorAll('button')[0].onclick=()=>show(s);tr.querySelectorAll('button')[1].onclick=()=>del(s.id);$('rows').appendChild(tr)})}
-async function show(s){const d=await api('/songs/'+s.id+'/poses');$('out').hidden=false;$('otitle').textContent=s.title;$('odata').textContent=JSON.stringify(d,null,1).slice(0,4000)}
-async function del(id){try{await api('/songs/'+id,{method:'DELETE'});load()}catch(e){alert(e.message)}}
-async function up(){try{const f=$('f').files[0];const poses=JSON.parse(await f.text());
- await api('/songs',{method:'POST',body:JSON.stringify({title:$('t').value,poses})});$('umsg').textContent='อัปโหลดแล้ว';$('umsg').className='ok';load()}catch(e){$('umsg').textContent=e.message;$('umsg').className='err'}}
-who();
-</script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Tab to Hand</title>
+    <script type="module" crossorigin src="/assets/index-SWfveq3K.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C-r9s_Wf.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

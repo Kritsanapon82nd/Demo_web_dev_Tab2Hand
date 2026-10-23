@@ -21,8 +21,14 @@ with c:
     assert c.get("/users/1",headers=H(tb)).status_code==403
     assert c.put("/users/2",json={"display_name":"Bobby"},headers=H(tb)).json()["display_name"]=="Bobby"
     poses=[{"t":0,"x":1},{"t":1,"x":2}]
-    r=c.post("/songs",json={"title":"Test","poses":poses},headers=H(tb));assert r.status_code==201 and r.json()["num_keyframes"]==2
+    assert c.post("/songs",json={"title":"Test","poses":poses},headers=H(tb)).status_code==403   # non-admin cannot add
+    import base64
+    r=c.post("/songs",json={"title":"Test","poses":poses,"tab_b64":base64.b64encode(b"GPDATA").decode(),"tab_name":"t.gp5","track":2,"track_name":"Lead"},headers=H(ta));assert r.status_code==201 and r.json()["num_keyframes"]==2
     sid=r.json()["id"]
+    assert c.get("/status").json()["available"]
+    it=c.get("/library").json()["items"];assert len(it)==1 and it[0]["id"]==str(sid) and it[0]["file"]=="t.gp5" and it[0]["track"]==2
+    assert c.get(f"/jobs/{sid}/tab").content==b"GPDATA" and c.get(f"/jobs/{sid}/poses").json()==poses
+    assert c.post("/convert").status_code==403 and "error" in c.post("/convert").json()
     assert c.post("/songs",json={"title":"x","poses":poses}).status_code==401
     assert c.get("/songs").json()["total"]==1 and c.get("/songs?q=zzz").json()["total"]==0
     assert c.get(f"/songs/{sid}/poses").json()==poses
