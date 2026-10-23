@@ -35,3 +35,6 @@ A "Sign in" button is added to the viewer's top bar by /site-nav.js (injected in
 
 ## Adding many songs
 python tools/import_library.py --site https://<your-site> --library "<viewer_copy>\library"   (use --dry-run first)
+
+## Song picker / track names
+The viewer page gets a Songs button (site-nav.js): lists the library and opens a song through the viewer's own library dialog. admin.html reads the track names from the chosen tab file (alphaTab 1.8.4 from jsDelivr) and offers them in a dropdown.

@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin · Tab to Hand</title>
 <link rel="stylesheet" href="/site.css">
+<style>select{width:100%;height:38px;padding:0 10px;border:1px solid #252b2e2e;border-radius:6px;background:#fff9;font:inherit;color:var(--ink)}select:focus{outline:2px solid var(--brass);outline-offset:1px}</style>
 </head><body>
 <div class="topbar"><a class="brand" href="/">Tab to Hand</a><span class="dim">Admin</span>
   <div class="grow"><a class="btn" href="/">Open viewer</a><a class="btn" href="/login.html">Account</a></div></div>
@@ -27,8 +28,11 @@
         <label for="t">Title</label><input id="t" required maxlength="200">
         <label for="g">Tab file (.gp3 / .gp4 / .gp5)</label><input type="file" id="g" accept=".gp3,.gp4,.gp5,.gp,.gpx" required>
         <label for="f">Poses file (ik_poses_output.json)</label><input type="file" id="f" accept=".json" required>
-        <div class="row"><div style="flex:1;min-width:140px"><label for="tr">Track number (first track = 0)</label><input id="tr" type="number" value="0" min="0" max="99"></div>
-          <div style="flex:2;min-width:180px"><label for="tn">Track name <span class="dim">(optional)</span></label><input id="tn" maxlength="100"></div></div>
+        <label for="trSel">Track <span class="dim">(read from the tab file)</span></label>
+        <select id="trSel" disabled><option>Choose the tab file first</option></select>
+        <div id="trFallback" hidden><label for="tr">Track number (first track = 0)</label><input id="tr" type="number" value="0" min="0" max="99">
+          <label for="tn">Track name <span class="dim">(optional)</span></label><input id="tn" maxlength="100"></div>
+        <p class="hint" id="trHint"></p>
         <button class="btn btn-primary btn-block" type="submit">Upload</button>
       </form>
       <p class="msg" id="umsg"></p>
@@ -75,9 +79,50 @@ $('fUp').onsubmit = async (e) => {
   try {
     const g = $('g').files[0], f = $('f').files[0];
     const poses = JSON.parse(await f.text());
-    await api('/songs', { method: 'POST', body: JSON.stringify({ title: $('t').value.trim(), poses, tab_b64: b64(await g.arrayBuffer()), tab_name: g.name, track: +$('tr').value, track_name: $('tn').value.trim() }) });
-    say('umsg', 'Added to the library.', 'ok'); $('fUp').reset(); loadSongs();
+    const sel = $('trSel'); const useSel = !sel.disabled && sel.options.length;
+    const track = useSel ? +sel.value : +$('tr').value;
+    const track_name = useSel ? (sel.selectedOptions[0].dataset.name || '') : $('tn').value.trim();
+    await api('/songs', { method: 'POST', body: JSON.stringify({ title: $('t').value.trim(), poses, tab_b64: b64(await g.arrayBuffer()), tab_name: g.name, track, track_name }) });
+    say('umsg', 'Added to the library.', 'ok'); $('fUp').reset(); resetTracks(); loadSongs();
   } catch (err) { say('umsg', err.message, 'err'); }
+};
+
+// ---- read the track names out of the chosen tab file (alphaTab, the same library the viewer uses) ----
+let atPromise = null;
+function loadAlphaTab() {
+  if (window.alphaTab) return Promise.resolve();
+  atPromise = atPromise || new Promise((ok, no) => {
+    const sc = document.createElement('script');
+    sc.src = window.ALPHATAB_URL || 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/alphaTab.js';
+    sc.onload = ok; sc.onerror = () => { atPromise = null; no(new Error('could not load alphaTab')); };
+    document.head.appendChild(sc);
+  });
+  return atPromise;
+}
+function resetTracks() {
+  const sel = $('trSel'); sel.innerHTML = '<option>Choose the tab file first</option>'; sel.disabled = true;
+  $('trFallback').hidden = true; say('trHint', '');
+}
+$('g').onchange = async () => {
+  const f = $('g').files[0]; if (!f) { resetTracks(); return; }
+  if (!$('t').value.trim()) $('t').value = f.name.replace(/\.[^.]+$/, '');
+  const sel = $('trSel'); sel.innerHTML = '<option>Reading tracks…</option>'; sel.disabled = true; $('trFallback').hidden = true;
+  try {
+    await loadAlphaTab();
+    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(await f.arrayBuffer()), new alphaTab.Settings());
+    sel.innerHTML = '';
+    score.tracks.forEach((t, i) => {
+      const o = document.createElement('option'); const name = (t.name || '').trim() || 'Track ' + (i + 1);
+      o.value = i; o.dataset.name = name; o.textContent = (i + 1) + '. ' + name + (t.staves.some((s) => s.isPercussion) ? ' (drums)' : '');
+      sel.appendChild(o);
+    });
+    const guess = [...sel.options].findIndex((o) => /guitar|gtr|lead|solo|rhythm/i.test(o.dataset.name) && !/drum/i.test(o.textContent));
+    sel.selectedIndex = guess >= 0 ? guess : 0; sel.disabled = false;
+    say('trHint', score.tracks.length + ' tracks found. Pick the one you converted.', 'ok');
+  } catch (e) {
+    sel.innerHTML = '<option>(could not read the tracks)</option>'; sel.disabled = true; $('trFallback').hidden = false;
+    say('trHint', 'Could not read track names from this file, so type the track number instead.', 'err');
+  }
 };
 currentUser().then((u) => {
   me = u;
